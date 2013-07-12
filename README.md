@@ -8,7 +8,7 @@ The result will also compress the output in sequence files in ether snappy, gzip
 com.cloudera.sa.ConfigableMapperExample.ManyTxtToFewSeqJob
 
 ##How to execute
-ManyTxtToFewSeqJob <inputPath> <outputPath> <# mappers> <compressionCodec>
+ManyTxtToFewSeqJob {inputPath} {outputPath} {# mappers} {compressionCodec}
 
 Example: ManyTxtToFewSeqJob ./input ./output 20 snappy
 
