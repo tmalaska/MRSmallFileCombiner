@@ -8,6 +8,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.BytesWritable;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.NullWritable;
 import org.apache.hadoop.io.Text;
@@ -19,6 +20,7 @@ import org.apache.hadoop.mapreduce.Mapper;
 import org.apache.hadoop.mapreduce.lib.output.SequenceFileOutputFormat;
 
 import com.cloudera.sa.ConfigableMapperExample.util.ConfigurableInputFormat;
+
 
 public class ManyTxtToFewSeqJob {
 	public static void main(String[] args) throws Exception {
@@ -41,13 +43,12 @@ public class ManyTxtToFewSeqJob {
 		Job job = new Job();
 		job.setJobName("ManyTxtToFewSeqJob");
 
-		job.getConfiguration().set("mapred.map.tasks", numberOfMappers);
-
-		job.getConfiguration().set("custom.input.folder", inputPath);
 
 		job.setJarByClass(ManyTxtToFewSeqJob.class);
 		// Define input format and path
 		job.setInputFormatClass(ConfigurableInputFormat.class);
+		ConfigurableInputFormat.setInputPath(job, inputPath);
+		ConfigurableInputFormat.setMapperNumber(job, Integer.parseInt(numberOfMappers));
 
 		// Define output format and path
 		job.setOutputFormatClass(SequenceFileOutputFormat.class);
@@ -70,10 +71,10 @@ public class ManyTxtToFewSeqJob {
 		// job.setReducerClass(Reducer.class);
 
 		// Define the key and value format
-		job.setOutputKeyClass(LongWritable.class);
-		job.setOutputValueClass(Text.class);
-		job.setMapOutputKeyClass(LongWritable.class);
-		job.setMapOutputValueClass(Text.class);
+		job.setOutputKeyClass(BytesWritable.class);
+		job.setOutputValueClass(BytesWritable.class);
+		job.setMapOutputKeyClass(BytesWritable.class);
+		job.setMapOutputValueClass(BytesWritable.class);
 
 		job.setNumReduceTasks(0);
 
@@ -87,66 +88,33 @@ public class ManyTxtToFewSeqJob {
 	}
 
 	public static class ConsalidatorMapper extends
-			Mapper<LongWritable, Text, LongWritable, Text> {
+			Mapper<LongWritable, Text, BytesWritable, BytesWritable> {
 		Text newKey = new Text();
 		Text newValue = new Text();
+		Configuration config;
+		FileSystem hdfs;
+		
 
 		@Override
 		public void setup(Context context) throws IOException {
-
-			System.out.println("Setup");
-
-			int numberOfMappers = context.getConfiguration().getInt(
-					"mapred.map.tasks", -1);
-
-			if (numberOfMappers == -1) {
-				throw new RuntimeException();
-			}
-
-			String inputFolder = context.getConfiguration().get(
-					"custom.input.folder");
-
-			int taskId = context.getTaskAttemptID().getTaskID().getId();
-
-			try {
-				Configuration config = new Configuration();
-				FileSystem hdfs = FileSystem.get(config);
-
-				Path inputFolderPath = new Path(inputFolder);
-
-				if (hdfs.isDirectory(inputFolderPath)) {
-					FileStatus[] fileStatuses = hdfs
-							.listStatus(inputFolderPath);
-
-					for (FileStatus fileStatus : fileStatuses) {
-
-						Path sourceFilePath = fileStatus.getPath();
-
-						if (sourceFilePath.getName().hashCode()
-								% numberOfMappers == taskId) {
-							processSingleFile(hdfs, sourceFilePath, context);
-						}
-					}
-
-				} else {
-					// We have a single file so only the first mapper can work
-					// on it
-					if (taskId == 0) {
-						processSingleFile(hdfs, inputFolderPath,
-								context);
-					}
-				}
-
-			} catch (Exception e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			}
+      config = new Configuration();
+      hdfs = FileSystem.get(config);
+		}
+		
+		@Override
+		public void cleanup(Context context) throws IOException {
+		  //hdfs.close();
 		}
 
-		private void processSingleFile(FileSystem hdfs, Path sourceFilePath,
+		@Override
+		public void map(LongWritable key, Text value, Context context)  throws IOException, InterruptedException{
+		  
+		  processSingleFile(new Path(value.toString()), context);
+		}
+		
+		private void processSingleFile(Path sourceFilePath,
 				Context context) throws IOException, InterruptedException {
 			
-			System.out.println("Reading:" + sourceFilePath);
 			context.getCounter("Files", "NumberOfFiles").increment(1);
 			FileStatus fileStatus = hdfs.getFileStatus(sourceFilePath);
 			context.getCounter("Files", "NumberOfFileBytes").increment(fileStatus.getLen());
@@ -155,13 +123,13 @@ public class ManyTxtToFewSeqJob {
 			BufferedReader reader = new BufferedReader(new InputStreamReader(hdfs.open(sourceFilePath)));
 			
 		    try {
-		    	Text newValue = new Text();
-		    	LongWritable longWritable = new LongWritable(0);
+		      BytesWritable byteValue = new BytesWritable();
+		      BytesWritable byteWritable = new BytesWritable();
 				String line = reader.readLine();
 				
 			    while ( line != null ) {
-			    	newValue.set(line);
-			    	context.write(longWritable, newValue);
+			      byteValue.set(line.getBytes(), 0, line.getBytes().length);
+			    	context.write(byteWritable, byteValue);
 			    	
 			    	context.getCounter("Files", "BytesWriten").increment(line.length());
 			    	context.getCounter("Files", "RecordsWriten").increment(1);
